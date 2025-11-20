@@ -10,52 +10,73 @@ import JobCard from '../components/JobCard'
 import Footer from '../components/Footer'
 import axios from 'axios'
 import { toast } from 'react-toastify'
-import { useAuth } from '@clerk/clerk-react'
+import { useAuth, useUser } from '@clerk/clerk-react'
 
 const ApplyJob = () => {
 
   const { id } = useParams()
 
   const { getToken } = useAuth()
+  const { user, isLoaded } = useUser()
 
   const navigate = useNavigate()
 
   const [JobData, setJobData] = useState(null)
   const [isAlreadyApplied, setIsAlreadyApplied] = useState(false)
 
-  const { jobs, backendUrl, userData, userApplications, fetchUserApplications } = useContext(AppContext)
+  const { jobs, backendUrl, userData, userApplications, fetchUserApplications, fetchUserData } = useContext(AppContext)
 
   const fetchJob = async () => {
+    if (!id) return
 
     try {
-
       const { data } = await axios.get(backendUrl + `/api/jobs/${id}`)
 
       if (data.success) {
         setJobData(data.job)
       } else {
-        toast.error(data.message)
+        toast.error(data.message || 'Failed to fetch job details')
       }
 
     } catch (error) {
-      toast.error(error.message)
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to fetch job details'
+      toast.error(errorMessage)
+      console.error('Fetch job error:', error)
     }
-
   }
 
   const applyHandler = async () => {
     try {
 
-      if (!userData) {
-        return toast.error('Login to apply for jobs')
+      // Check if user is authenticated with Clerk
+      if (!isLoaded) {
+        return // Still loading
       }
 
-      if (!userData.resume) {
+      if (!user) {
+        return toast.error('Please login to apply for jobs')
+      }
+
+      // Try to fetch user data if not available (user might not exist in DB yet)
+      if (!userData && fetchUserData) {
+        await fetchUserData()
+      }
+
+      // Check if resume is uploaded (only if userData exists)
+      if (userData && !userData.resume) {
         navigate('/applications')
-        return toast.error('Upload resume to apply')
+        return toast.error('Please upload your resume to apply for jobs')
+      }
+
+      if (!JobData || !JobData._id) {
+        return toast.error('Job data not available. Please refresh the page.')
       }
 
       const token = await getToken()
+
+      if (!token) {
+        return toast.error('Authentication failed. Please login again.')
+      }
 
       const { data } = await axios.post(backendUrl + '/api/users/apply',
         { jobId: JobData._id },
@@ -64,31 +85,40 @@ const ApplyJob = () => {
 
       if (data.success) {
         toast.success(data.message)
+        setIsAlreadyApplied(true)
         fetchUserApplications()
+        // Refresh user data after applying
+        if (fetchUserData) {
+          fetchUserData()
+        }
       } else {
-        toast.error(data.message)
+        toast.error(data.message || 'Failed to apply for job')
       }
 
     } catch (error) {
-      toast.error(error.message)
+      const errorMessage = error.response?.data?.message || error.message || 'Failed to apply for job. Please try again.'
+      toast.error(errorMessage)
+      console.error('Apply job error:', error)
     }
   }
 
   const checkAlreadyApplied = () => {
-
-    const hasApplied = userApplications.some(item => item.jobId._id === JobData._id)
+    if (!JobData || !JobData._id) return
+    
+    const hasApplied = userApplications.some(item => item.jobId && item.jobId._id === JobData._id)
     setIsAlreadyApplied(hasApplied)
-
   }
 
   useEffect(() => {
     fetchJob()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id])
 
   useEffect(() => {
     if (userApplications.length > 0 && JobData) {
       checkAlreadyApplied()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JobData, userApplications, id])
 
   return JobData ? (

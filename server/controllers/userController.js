@@ -6,7 +6,11 @@ import { v2 as cloudinary } from "cloudinary"
 // Get User Data
 export const getUserData = async (req, res) => {
 
-    const userId = req.auth.userId
+    const userId = req.auth?.userId
+
+    if (!userId) {
+        return res.status(401).json({ success: false, message: 'User ID not found. Please login again.' })
+    }
 
     try {
 
@@ -19,7 +23,8 @@ export const getUserData = async (req, res) => {
         res.json({ success: true, user })
 
     } catch (error) {
-        res.json({ success: false, message: error.message })
+        console.error('Error fetching user data:', error)
+        return res.status(500).json({ success: false, message: error.message || 'Failed to fetch user data' })
     }
 
 }
@@ -33,6 +38,10 @@ export const applyForJob = async (req, res) => {
     const userId = req.auth.userId
 
     try {
+
+        if (!jobId) {
+            return res.status(400).json({ success: false, message: 'Job ID is required' })
+        }
 
         const isAlreadyApplied = await JobApplication.find({ jobId, userId })
 
@@ -56,7 +65,7 @@ export const applyForJob = async (req, res) => {
         res.json({ success: true, message: 'Applied Successfully' })
 
     } catch (error) {
-        res.json({ success: false, message: error.message })
+        res.status(500).json({ success: false, message: error.message })
     }
 
 }
@@ -66,21 +75,22 @@ export const getUserJobApplications = async (req, res) => {
 
     try {
 
-        const userId = req.auth.userId
+        const userId = req.auth?.userId
+
+        if (!userId) {
+            return res.status(401).json({ success: false, message: 'User ID not found. Please login again.' })
+        }
 
         const applications = await JobApplication.find({ userId })
             .populate('companyId', 'name email image')
             .populate('jobId', 'title description location category level salary')
             .exec()
 
-        if (!applications) {
-            return res.json({ success: false, message: 'No job applications found for this user.' })
-        }
-
-        return res.json({ success: true, applications })
+        return res.json({ success: true, applications: applications || [] })
 
     } catch (error) {
-        res.json({ success: false, message: error.message })
+        console.error('Error fetching user applications:', error)
+        return res.status(500).json({ success: false, message: error.message || 'Failed to fetch applications' })
     }
 
 }
@@ -94,6 +104,10 @@ export const updateUserResume = async (req, res) => {
         const resumeFile = req.file
 
         const userData = await User.findById(userId)
+
+        if (!userData) {
+            return res.json({ success: false, message: 'User Not Found' })
+        }
 
         if (resumeFile) {
             const resumeUpload = await cloudinary.uploader.upload(resumeFile.path)
